@@ -63,9 +63,9 @@ HTML_TEMPLATE = """
   .chat-header { border-bottom: 1px solid var(--bg-tertiary); font-size: 16px; }
   #messages { flex: 1; overflow-y: auto; padding: 16px 0 32px 0; display: flex; flex-direction: column; }
   
-  /* メッセージのスタイリング（連続投稿対応） */
+  /* メッセージのスタイリング（重なり修正済み！） */
   .msg-wrapper { display: flex; padding: 2px 16px 2px 72px; position: relative; margin-top: 0; }
-  .msg-wrapper.first { margin-top: 17px; padding-left: 16px; }
+  .msg-wrapper.first { margin-top: 17px; } /* ここにあった padding-left を削除しました */
   .msg-wrapper:hover { background: rgba(2, 2, 2, 0.06); }
   
   .msg-avatar { position: absolute; left: 16px; top: 2px; width: 40px; height: 40px; border-radius: 50%; background-color: transparent; background-size: cover; background-position: center; cursor: pointer; }
@@ -143,7 +143,6 @@ HTML_TEMPLATE = """
 
   function getAvatarUrl(user) {
     if (user.avatar) return `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=128`;
-    // Discordのデフォルトアイコン仕様
     const index = user.discriminator !== "0" ? parseInt(user.discriminator) % 5 : Number(BigInt(user.id) >> 22n) % 6;
     return `https://cdn.discordapp.com/embed/avatars/${index}.png`;
   }
@@ -221,7 +220,6 @@ HTML_TEMPLATE = """
     const channels = await api('GET', `/guilds/${guildId}/channels`);
     if(channels.error || !Array.isArray(channels)) return;
     
-    // カテゴリ以外のテキストチャンネル(0)とアナウンス(5)を取得して並び替え
     channels.filter(c => c.type === 0 || c.type === 5)
             .sort((a,b) => a.position - b.position)
             .forEach(c => {
@@ -243,8 +241,8 @@ HTML_TEMPLATE = """
   async function loadMembers(guildId) {
     const list = document.getElementById('member-list-container');
     list.innerHTML = '';
-    // メンバー取得（※Discord Developer Portalで「Server Members Intent」をONにする必要があります）
-    const members = await api('GET', `/guilds/${guildId}/members?limit=100`);
+    // ここを limit=1000 に修正しました
+    const members = await api('GET', `/guilds/${guildId}/members?limit=1000`);
     
     if (members.error || !Array.isArray(members)) {
       list.innerHTML = '<div style="padding:8px; font-size:13px; color:var(--text-muted);">メンバー情報が取得できませんでした（BotのIntent設定を確認してください）。</div>';
@@ -283,7 +281,6 @@ HTML_TEMPLATE = """
 
     reversedMsgs.forEach(m => {
       const currTime = new Date(m.timestamp);
-      // 連続投稿の判定：同じ人 ＆ 5分以内の投稿
       const isConsecutive = (prevAuthorId === m.author.id) && 
                             (prevTimestamp && (currTime - prevTimestamp) < 5 * 60 * 1000);
 
@@ -309,10 +306,8 @@ HTML_TEMPLATE = """
       let contentHtml = `<div class="msg-content">${escapeHtml(m.content)}</div>${attHtml}${embHtml}`;
 
       if (isConsecutive) {
-        // アイコン・名前を省略して内容だけ表示
         div.innerHTML = `<div class="msg-body">${contentHtml}</div>`;
       } else {
-        // アイコン・名前・時間を表示
         div.innerHTML = `
           <div class="msg-avatar" style="background-image: url('${getAvatarUrl(m.author)}')"></div>
           <div class="msg-body">
@@ -332,7 +327,6 @@ HTML_TEMPLATE = """
       prevTimestamp = currTime;
     });
     
-    // スクロールを一番下へ
     list.scrollTop = list.scrollHeight;
   }
 
