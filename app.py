@@ -1,6 +1,6 @@
 import os
 import requests
-from flask import Flask, jsonify, render_template_string
+from flask import Flask, jsonify, render_template_string, request
 
 TOKEN = os.environ.get("DISCORD_TOKEN")
 API_BASE = "https://discord.com/api/v10"
@@ -12,7 +12,7 @@ HTML_TEMPLATE = """
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>Discord Read-Only Viewer</title>
+<title>Discord Web Client</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -25,139 +25,119 @@ HTML_TEMPLATE = """
     --brand: #5865f2;
     --embed-bg: #2b2d31;
     --divider: #4e50587a;
+    --danger: #da373c;
   }
   * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #1a1b1e transparent; }
   body { margin: 0; font-family: 'Noto Sans JP', sans-serif; background: var(--bg-primary); color: var(--text-normal); display: flex; height: 100vh; overflow: hidden; font-size: 16px; }
   
-  /* スクロールバー */
   ::-webkit-scrollbar { width: 8px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #1a1b1e; border-radius: 4px; }
 
-  /* 左端：サーバー一覧 */
   #server-bar { width: 72px; background: var(--bg-tertiary); display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 8px; flex-shrink: 0; z-index: 2; }
-  .server-icon { width: 48px; height: 48px; border-radius: 50%; background-color: var(--bg-primary); color: var(--text-normal); display: flex; justify-content: center; align-items: center; font-weight: bold; cursor: pointer; transition: 0.2s ease; background-size: cover; background-position: center; position: relative; }
-  .server-icon:hover { border-radius: 16px; background-color: var(--brand); color: #fff; }
-  .server-icon.active { border-radius: 16px; background-color: var(--brand); }
-
-  /* 左から2番目：チャンネル一覧 */
-  #channels { width: 240px; background: var(--bg-secondary); display: flex; flex-direction: column; flex-shrink: 0; }
-  .header { height: 48px; padding: 0 16px; font-weight: 700; color: var(--header-primary); display: flex; align-items: center; border-bottom: 1px solid var(--bg-tertiary); box-shadow: 0 1px 2px rgba(0,0,0,0.1); font-size: 15px; flex-shrink: 0; justify-content: space-between; }
+  .server-icon { width: 48px; height: 48px; border-radius: 50%; background-color: var(--bg-primary); color: var(--text-normal); display: flex; justify-content: center; align-items: center; font-weight: bold; cursor: pointer; transition: 0.2s ease; background-size: cover; background-position: center; }
+  .server-icon:hover, .server-icon.active { border-radius: 16px; background-color: var(--brand); color: #fff; }
   
-  /* イベントパネル */
-  #events-container { padding: 16px 8px 8px; display: none; border-bottom: 1px solid var(--divider); }
-  .event-header { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; padding-left: 8px; }
-  .event-card { background: var(--bg-primary); border-radius: 4px; padding: 8px; font-size: 13px; margin-bottom: 4px; cursor: pointer; border-left: 2px solid #23a559; }
-  .event-title { font-weight: bold; color: var(--header-primary); margin-bottom: 4px; }
-  .event-time { color: #23a559; font-size: 12px; }
+  #channels { width: 240px; background: var(--bg-secondary); display: flex; flex-direction: column; flex-shrink: 0; }
+  .header { height: 48px; padding: 0 16px; font-weight: 700; color: var(--header-primary); display: flex; align-items: center; border-bottom: 1px solid var(--bg-tertiary); font-size: 15px; flex-shrink: 0; justify-content: space-between; }
+  
+  .btn-icon { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; padding: 4px; border-radius: 4px; }
+  .btn-icon:hover { color: var(--text-normal); background: rgba(255,255,255,0.1); }
+  .btn-danger:hover { color: var(--danger); }
 
-  /* チャンネルリスト */
   .list { flex: 1; overflow-y: auto; padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; }
-  .channel-item { padding: 6px 8px; border-radius: 4px; cursor: pointer; color: var(--text-muted); font-size: 15px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+  .channel-item { padding: 6px 8px; border-radius: 4px; cursor: pointer; color: var(--text-muted); font-size: 15px; font-weight: 500; display: flex; align-items: center; justify-content: space-between; }
   .channel-item:hover { background: rgba(78, 80, 88, 0.3); color: var(--text-normal); }
   .channel-item.active { background: rgba(78, 80, 88, 0.6); color: #fff; }
-  .hash { color: #80848e; font-size: 18px; font-weight: normal; }
-
-  /* メイン：チャット画面 */
-  #chat { flex: 1; display: flex; flex-direction: column; background: var(--bg-primary); min-width: 0; }
-  .chat-header { border-bottom: 1px solid var(--bg-tertiary); font-size: 16px; }
-  #messages { flex: 1; overflow-y: auto; padding: 16px 0 32px 0; display: flex; flex-direction: column; }
   
-  /* メッセージのスタイリング（重なり修正済み！） */
-  .msg-wrapper { display: flex; padding: 2px 16px 2px 72px; position: relative; margin-top: 0; }
-  .msg-wrapper.first { margin-top: 17px; } /* ここにあった padding-left を削除しました */
+  #chat { flex: 1; display: flex; flex-direction: column; background: var(--bg-primary); min-width: 0; }
+  #messages { flex: 1; overflow-y: auto; padding: 16px 0 16px 0; display: flex; flex-direction: column; }
+  
+  .msg-wrapper { display: flex; padding: 2px 16px 2px 72px; position: relative; margin-top: 0; group; }
+  .msg-wrapper.first { margin-top: 17px; }
   .msg-wrapper:hover { background: rgba(2, 2, 2, 0.06); }
   
-  .msg-avatar { position: absolute; left: 16px; top: 2px; width: 40px; height: 40px; border-radius: 50%; background-color: transparent; background-size: cover; background-position: center; cursor: pointer; }
-  
+  .msg-avatar { position: absolute; left: 16px; top: 2px; width: 40px; height: 40px; border-radius: 50%; background-size: cover; background-position: center; }
   .msg-body { flex: 1; min-width: 0; }
-  .msg-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; line-height: 1.2; }
+  .msg-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
   .msg-author { font-weight: 500; color: var(--header-primary); font-size: 16px; }
   .msg-time { font-size: 12px; color: var(--text-muted); }
-  .msg-bot-tag { background: var(--brand); color: white; font-size: 10px; padding: 2px 4px; border-radius: 3px; font-weight: bold; }
-  
   .msg-content { color: var(--text-normal); font-size: 15px; line-height: 1.375rem; white-space: pre-wrap; word-break: break-word; }
   
-  /* 添付ファイルと埋め込み */
-  .attachment-img { max-width: 400px; max-height: 400px; border-radius: 8px; margin-top: 4px; display: block; object-fit: contain; cursor: pointer; }
-  .embed { background: var(--embed-bg); border-radius: 4px; border-left: 4px solid var(--brand); padding: 12px 16px; margin-top: 4px; max-width: 520px; display: flex; flex-direction: column; gap: 8px; }
-  .embed-title { font-weight: 700; color: #1e88e5; }
-  .embed-desc { font-size: 14px; color: var(--text-normal); white-space: pre-wrap; }
-  
-  /* フッター */
-  .read-only-footer { padding: 0 16px 24px; }
-  .read-only-box { background: var(--bg-tertiary); border-radius: 8px; padding: 12px 16px; color: var(--text-muted); font-size: 14px; font-weight: 500; display: flex; justify-content: space-between; align-items: center; }
-  .btn-refresh { background: var(--brand); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: 0.2s; }
-  .btn-refresh:hover { background: #4752c4; }
+  /* メッセージのホバーメニュー */
+  .msg-actions { position: absolute; right: 16px; top: -10px; background: var(--bg-primary); border: 1px solid var(--bg-tertiary); border-radius: 4px; display: none; padding: 2px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+  .msg-wrapper:hover .msg-actions { display: flex; gap: 4px; }
+  .msg-action-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 4px 8px; border-radius: 2px; font-size: 12px; }
+  .msg-action-btn:hover { background: var(--brand); color: white; }
+  .msg-action-btn.delete:hover { background: var(--danger); }
 
-  /* 右端：メンバー一覧 */
+  /* 入力エリア */
+  .chat-input-container { padding: 0 16px 24px; position: relative; }
+  .chat-input-wrapper { background: #383a40; border-radius: 8px; display: flex; align-items: center; padding: 10px 16px; }
+  .chat-input-wrapper input { flex: 1; background: transparent; border: none; color: var(--text-normal); font-size: 15px; outline: none; }
+  .chat-input-wrapper input::placeholder { color: var(--text-muted); }
+  
   #members { width: 240px; background: var(--bg-secondary); display: flex; flex-direction: column; flex-shrink: 0; border-left: 1px solid var(--bg-tertiary); }
-  @media (max-width: 800px) { #members { display: none; } }
-  .member-list-inner { padding: 16px 8px; overflow-y: auto; flex: 1; }
-  .member-role-header { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin: 16px 0 4px 8px; }
-  .member-item { display: flex; align-items: center; gap: 12px; padding: 6px 8px; border-radius: 4px; cursor: pointer; opacity: 0.8; }
-  .member-item:hover { background: rgba(78, 80, 88, 0.3); opacity: 1; }
-  .member-avatar { width: 32px; height: 32px; border-radius: 50%; background-size: cover; background-position: center; }
-  .member-name { color: var(--text-normal); font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .member-item { display: flex; align-items: center; gap: 12px; padding: 6px 8px; margin: 0 8px; border-radius: 4px; color: var(--text-normal); }
 </style>
 </head>
 <body>
 <div id="server-bar"></div>
 <div id="channels">
-  <div class="header" id="server-name">サーバーを選択</div>
-  <div id="events-container">
-    <div class="event-header">イベント (<span id="event-count">0</span>)</div>
-    <div id="event-list"></div>
+  <div class="header">
+    <span id="server-name">サーバーを選択</span>
+    <button class="btn-icon btn-danger" onclick="leaveServer()" title="このサーバーからBotを退出させる">🚪</button>
   </div>
   <div id="channel-list" class="list"></div>
 </div>
 <div id="chat">
-  <div class="header chat-header">
-    <span id="current-channel-name"><span class="hash">#</span> チャンネル未選択</span>
+  <div class="header">
+    <span id="current-channel-name"># チャンネル未選択</span>
+    <button class="btn-icon" onclick="loadMessages(currentChannelId)" title="ログを手動更新">🔄 更新</button>
   </div>
   <div id="messages"></div>
-  <div class="read-only-footer">
-    <div class="read-only-box">
-      <span>🔒 閲覧専用モード (メッセージの送信はできません)</span>
-      <button id="refresh-btn" class="btn-refresh" style="display:none;" onclick="loadMessages(currentChannelId)">ログを最新にする</button>
+  <div class="chat-input-container">
+    <div class="chat-input-wrapper">
+      <input type="text" id="chat-input" placeholder="メッセージを送信 (Enterで送信)" onkeypress="handleEnter(event)">
     </div>
   </div>
 </div>
 <div id="members">
   <div class="header">メンバー</div>
-  <div id="member-list-container" class="member-list-inner"></div>
+  <div id="member-list-container" class="list"></div>
 </div>
 
 <script>
   let currentGuildId = null;
   let currentChannelId = null;
+  let botUserId = null;
 
-  async function api(method, path) {
+  async function api(method, path, body = null) {
+    const options = { method };
+    if (body) {
+      options.headers = { 'Content-Type': 'application/json' };
+      options.body = JSON.stringify(body);
+    }
     try {
-      const res = await fetch('/api' + path, { method });
-      return res.json();
+      const res = await fetch('/api' + path, options);
+      if (res.status === 204) return { success: true };
+      return await res.json();
     } catch(e) {
       return { error: e.message };
     }
+  }
+
+  // 初期化：Bot自身のIDを取得
+  async function init() {
+    const me = await api('GET', '/users/@me');
+    if(!me.error) botUserId = me.id;
+    loadServers();
   }
 
   function getAvatarUrl(user) {
     if (user.avatar) return `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=128`;
     const index = user.discriminator !== "0" ? parseInt(user.discriminator) % 5 : Number(BigInt(user.id) >> 22n) % 6;
     return `https://cdn.discordapp.com/embed/avatars/${index}.png`;
-  }
-
-  function formatDate(isoString) {
-    const d = new Date(isoString);
-    const today = new Date();
-    const isToday = d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
-    const time = `${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
-    return isToday ? `今日 ${time}` : `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${time}`;
-  }
-
-  function formatEventDate(isoString) {
-    const d = new Date(isoString);
-    return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')} 開始`;
   }
 
   function escapeHtml(text) {
@@ -167,6 +147,7 @@ HTML_TEMPLATE = """
 
   async function loadServers() {
     const bar = document.getElementById('server-bar');
+    bar.innerHTML = '';
     const servers = await api('GET', '/users/@me/guilds');
     if (servers.error) return;
     
@@ -182,35 +163,10 @@ HTML_TEMPLATE = """
         div.classList.add('active');
         currentGuildId = s.id;
         document.getElementById('server-name').textContent = s.name;
-        loadEvents(s.id);
         loadChannels(s.id);
         loadMembers(s.id);
       };
       bar.appendChild(div);
-    });
-  }
-
-  async function loadEvents(guildId) {
-    const evContainer = document.getElementById('events-container');
-    const evList = document.getElementById('event-list');
-    evList.innerHTML = '';
-    
-    const events = await api('GET', `/guilds/${guildId}/scheduled-events`);
-    if(events.error || !Array.isArray(events) || events.length === 0) {
-      evContainer.style.display = 'none';
-      return;
-    }
-    
-    evContainer.style.display = 'block';
-    document.getElementById('event-count').textContent = events.length;
-    events.forEach(ev => {
-      const div = document.createElement('div');
-      div.className = 'event-card';
-      div.innerHTML = `
-        <div class="event-title">${escapeHtml(ev.name)}</div>
-        <div class="event-time">📅 ${formatEventDate(ev.scheduled_start_time)}</div>
-      `;
-      evList.appendChild(div);
     });
   }
 
@@ -220,18 +176,19 @@ HTML_TEMPLATE = """
     const channels = await api('GET', `/guilds/${guildId}/channels`);
     if(channels.error || !Array.isArray(channels)) return;
     
-    channels.filter(c => c.type === 0 || c.type === 5)
-            .sort((a,b) => a.position - b.position)
-            .forEach(c => {
+    channels.filter(c => c.type === 0 || c.type === 5).sort((a,b) => a.position - b.position).forEach(c => {
       const div = document.createElement('div');
       div.className = 'channel-item';
-      div.innerHTML = `<span class="hash">#</span> ${escapeHtml(c.name)}`;
-      div.onclick = () => {
+      div.innerHTML = `
+        <span># ${escapeHtml(c.name)}</span>
+        <button class="btn-icon" onclick="createInvite('${c.id}', event)" title="招待リンクを作成">🔗</button>
+      `;
+      div.onclick = (e) => {
+        if(e.target.tagName === 'BUTTON') return; // ボタン押下時は切り替えない
         document.querySelectorAll('.channel-item').forEach(e => e.classList.remove('active'));
         div.classList.add('active');
         currentChannelId = c.id;
-        document.getElementById('current-channel-name').innerHTML = `<span class="hash">#</span> ${escapeHtml(c.name)}`;
-        document.getElementById('refresh-btn').style.display = 'block';
+        document.getElementById('current-channel-name').textContent = `# ${c.name}`;
         loadMessages(c.id);
       };
       list.appendChild(div);
@@ -241,22 +198,15 @@ HTML_TEMPLATE = """
   async function loadMembers(guildId) {
     const list = document.getElementById('member-list-container');
     list.innerHTML = '';
-    // ここを limit=1000 に修正しました
     const members = await api('GET', `/guilds/${guildId}/members?limit=1000`);
+    if (members.error || !Array.isArray(members)) return;
     
-    if (members.error || !Array.isArray(members)) {
-      list.innerHTML = '<div style="padding:8px; font-size:13px; color:var(--text-muted);">メンバー情報が取得できませんでした（BotのIntent設定を確認してください）。</div>';
-      return;
-    }
-    
-    list.innerHTML = `<div class="member-role-header">サーバーメンバー — ${members.length}</div>`;
     members.forEach(m => {
-      const user = m.user;
       const div = document.createElement('div');
       div.className = 'member-item';
       div.innerHTML = `
-        <div class="member-avatar" style="background-image: url('${getAvatarUrl(user)}')"></div>
-        <div class="member-name">${escapeHtml(m.nick || user.global_name || user.username)}</div>
+        <img src="${getAvatarUrl(m.user)}" style="width:32px; height:32px; border-radius:50%;">
+        <span style="font-size:15px;">${escapeHtml(m.nick || m.user.global_name || m.user.username)}</span>
       `;
       list.appendChild(div);
     });
@@ -265,72 +215,97 @@ HTML_TEMPLATE = """
   async function loadMessages(channelId) {
     if(!channelId) return;
     const list = document.getElementById('messages');
-    list.innerHTML = '<div style="text-align:center; padding: 20px; color: var(--text-muted);">読み込み中...</div>';
-    
     const msgs = await api('GET', `/channels/${channelId}/messages?limit=50`);
     list.innerHTML = '';
-    
-    if (!Array.isArray(msgs)) { 
-      list.innerHTML = '<div style="padding:16px;">権限がないか、チャンネルが見つかりません。</div>'; 
-      return; 
-    }
+    if (!Array.isArray(msgs)) return;
     
     const reversedMsgs = [...msgs].reverse();
     let prevAuthorId = null;
-    let prevTimestamp = null;
 
     reversedMsgs.forEach(m => {
-      const currTime = new Date(m.timestamp);
-      const isConsecutive = (prevAuthorId === m.author.id) && 
-                            (prevTimestamp && (currTime - prevTimestamp) < 5 * 60 * 1000);
-
+      const isConsecutive = (prevAuthorId === m.author.id);
       const div = document.createElement('div');
       div.className = `msg-wrapper ${isConsecutive ? 'consecutive' : 'first'}`;
       
-      let attHtml = '';
-      if(m.attachments) m.attachments.forEach(a => { 
-        if (a.content_type && a.content_type.startsWith('image/')) {
-          attHtml += `<a href="${a.url}" target="_blank"><img class="attachment-img" src="${a.url}"></a>`; 
-        }
-      });
+      const content = `<div class="msg-content">${escapeHtml(m.content)}</div>`;
       
-      let embHtml = '';
-      if(m.embeds) m.embeds.forEach(e => {
-        const color = e.color ? '#' + e.color.toString(16).padStart(6, '0') : '#1e1f22';
-        let inner = '';
-        if(e.title) inner += `<div class="embed-title">${escapeHtml(e.title)}</div>`;
-        if(e.description) inner += `<div class="embed-desc">${escapeHtml(e.description)}</div>`;
-        embHtml += `<div class="embed" style="border-left-color: ${color}">${inner}</div>`;
-      });
-
-      let contentHtml = `<div class="msg-content">${escapeHtml(m.content)}</div>${attHtml}${embHtml}`;
+      // 編集はBot自身のメッセージのみ、削除は権限があれば可能（ここではUI上両方表示）
+      const actions = `
+        <div class="msg-actions">
+          ${m.author.id === botUserId ? `<button class="msg-action-btn" onclick="editMessage('${m.id}', \`${escapeHtml(m.content)}\`)">編集</button>` : ''}
+          <button class="msg-action-btn delete" onclick="deleteMessage('${m.id}')">削除</button>
+        </div>
+      `;
 
       if (isConsecutive) {
-        div.innerHTML = `<div class="msg-body">${contentHtml}</div>`;
+        div.innerHTML = `<div class="msg-body">${content}</div>${actions}`;
       } else {
         div.innerHTML = `
           <div class="msg-avatar" style="background-image: url('${getAvatarUrl(m.author)}')"></div>
           <div class="msg-body">
             <div class="msg-header">
               <span class="msg-author">${escapeHtml(m.author.global_name || m.author.username)}</span>
-              ${m.author.bot ? '<span class="msg-bot-tag">BOT</span>':''} 
-              <span class="msg-time">${formatDate(m.timestamp)}</span>
             </div>
-            ${contentHtml}
+            ${content}
           </div>
+          ${actions}
         `;
       }
-      
       list.appendChild(div);
-      
       prevAuthorId = m.author.id;
-      prevTimestamp = currTime;
     });
-    
     list.scrollTop = list.scrollHeight;
   }
 
-  loadServers();
+  // --- 新機能のアクション群 ---
+
+  async function handleEnter(e) {
+    if(e.key === 'Enter') {
+      const input = document.getElementById('chat-input');
+      const content = input.value.trim();
+      if(!content || !currentChannelId) return;
+      
+      input.value = ''; // 先に入力欄をクリア
+      await api('POST', `/channels/${currentChannelId}/messages`, { content });
+      loadMessages(currentChannelId);
+    }
+  }
+
+  async function deleteMessage(msgId) {
+    if(!confirm("このメッセージを削除しますか？")) return;
+    await api('DELETE', `/channels/${currentChannelId}/messages/${msgId}`);
+    loadMessages(currentChannelId);
+  }
+
+  async function editMessage(msgId, oldContent) {
+    const newContent = prompt("メッセージを編集:", oldContent);
+    if(newContent === null || newContent === oldContent || newContent.trim() === "") return;
+    await api('PATCH', `/channels/${currentChannelId}/messages/${msgId}`, { content: newContent });
+    loadMessages(currentChannelId);
+  }
+
+  async function createInvite(channelId, event) {
+    event.stopPropagation(); // チャンネル切り替えを防ぐ
+    const res = await api('POST', `/channels/${channelId}/invites`, { max_age: 86400 }); // 24時間有効
+    if(res.code) {
+      prompt("招待リンクが作成されました (24時間有効):", `https://discord.gg/${res.code}`);
+    } else {
+      alert("招待リンクの作成に失敗しました（権限がありません）。");
+    }
+  }
+
+  async function leaveServer() {
+    if(!currentGuildId) return;
+    if(!confirm("⚠️ 本当にこのサーバーからBotを退出させますか？（二度とアクセスできなくなります）")) return;
+    
+    await api('DELETE', `/users/@me/guilds/${currentGuildId}`);
+    alert("サーバーから退出しました。");
+    loadServers();
+    document.getElementById('channel-list').innerHTML = '';
+    document.getElementById('messages').innerHTML = '';
+  }
+
+  init();
 </script>
 </body>
 </html>
@@ -340,14 +315,31 @@ HTML_TEMPLATE = """
 def index():
     return render_template_string(HTML_TEMPLATE)
 
-@app.route("/api/<path:subpath>", methods=["GET"])
+@app.route("/api/<path:subpath>", methods=["GET", "POST", "DELETE", "PATCH"])
 def proxy(subpath):
     if not TOKEN:
         return jsonify({"error": "Token not configured"}), 500
     url = f"{API_BASE}/{subpath}"
-    headers = {"Authorization": f"Bot {TOKEN}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Bot {TOKEN}"}
+    
+    kwargs = {"headers": headers}
+    if request.is_json:
+        kwargs["json"] = request.get_json()
+        
     try:
-        res = requests.get(url, headers=headers)
+        if request.method == "GET":
+            res = requests.get(url, **kwargs)
+        elif request.method == "POST":
+            res = requests.post(url, **kwargs)
+        elif request.method == "DELETE":
+            res = requests.delete(url, **kwargs)
+        elif request.method == "PATCH":
+            res = requests.patch(url, **kwargs)
+            
+        # 削除成功時などは中身のない204が返ってくるため分岐
+        if res.status_code == 204:
+            return jsonify({"success": True}), 204
+            
         return jsonify(res.json()), res.status_code
     except Exception as e:
         return jsonify({"error": str(e)}), 500
